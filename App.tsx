@@ -54,6 +54,7 @@ export default function App() {
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showRoleSelection, setShowRoleSelection] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
   
   // Auth state
   const [tempAuthUser, setTempAuthUser] = useState<any>(null);
@@ -71,17 +72,46 @@ export default function App() {
   // Initialize Auth
   useEffect(() => {
     const initAuth = async () => {
+      // Check for preview parameter
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('setup') === 'true') {
+        setPreviewMode(true);
+        setShowRoleSelection(true);
+        setTempAuthUser({
+          email: 'preview@example.com',
+          user_metadata: {
+            full_name: 'Preview User',
+            avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'
+          }
+        });
+        setLoading(false);
+        return;
+      }
+
       try {
-        const currentUser = await dbService.getCurrentUser();
-        setUser(currentUser);
+        // 1. Check current session immediately
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          const profile = await dbService.getCurrentUser();
+          if (profile) {
+            setUser(profile);
+            setShowRoleSelection(false);
+          } else {
+            // Logged in via Google but no database profile yet
+            setTempAuthUser(session.user);
+            setShowRoleSelection(true);
+          }
+        }
       } catch (err) {
         console.error("Auth initialization error:", err);
       } finally {
         setLoading(false);
       }
 
+      // 2. Listen for subsequent auth changes (like redirect completion or logout)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
+        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
           const profile = await dbService.getCurrentUser();
           if (profile) {
             setUser(profile);
@@ -92,6 +122,8 @@ export default function App() {
           }
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
+          setTempAuthUser(null);
+          setShowRoleSelection(false);
           setSelectedClass(null);
           setCurrentTab('classes');
         }
@@ -155,7 +187,6 @@ export default function App() {
   }, [selectedClass, user?.role]);
 
   const initiateGoogleSignIn = async () => {
-    // Explicitly define the redirect URL to match the current origin
     const redirectUrl = window.location.origin;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -174,6 +205,11 @@ export default function App() {
   };
 
   const finalizeLogin = async (role: UserRole) => {
+    if (previewMode) {
+      alert("You are in preview mode. Authentication is disabled.");
+      window.location.href = window.location.origin;
+      return;
+    }
     if (!tempAuthUser) return;
     setOpLoading(true);
     
@@ -192,7 +228,7 @@ export default function App() {
       setShowRoleSelection(false);
       setTempAuthUser(null);
     } else {
-      alert("Failed to create profile.");
+      alert("Failed to create profile in database. Check Supabase logs.");
     }
     setOpLoading(false);
   };
@@ -366,7 +402,7 @@ export default function App() {
     );
   }
 
-  if (!user) {
+  if (!user && !previewMode) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-[2.5rem] p-12 max-w-md w-full shadow-2xl border border-slate-100 text-center relative overflow-hidden">
@@ -394,10 +430,10 @@ export default function App() {
           ) : (
             <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                <img src={tempAuthUser.user_metadata?.avatar_url} alt="P" className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
+                <img src={tempAuthUser?.user_metadata?.avatar_url} alt="P" className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
                 <div className="text-left">
-                  <p className="text-sm font-bold text-slate-800">{tempAuthUser.user_metadata?.full_name}</p>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">{tempAuthUser.email}</p>
+                  <p className="text-sm font-bold text-slate-800">{tempAuthUser?.user_metadata?.full_name}</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase">{tempAuthUser?.email}</p>
                 </div>
               </div>
               
@@ -440,6 +476,60 @@ export default function App() {
     );
   }
 
+  // Preview Mode UI for Role Selection
+  if (previewMode && !user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-[2.5rem] p-12 max-w-md w-full shadow-2xl border border-slate-100 text-center relative overflow-hidden">
+           <button 
+             onClick={() => { setPreviewMode(false); window.location.href = window.location.origin; }}
+             className="absolute top-4 right-4 text-slate-300 hover:text-slate-500"
+           >
+             Close Preview
+           </button>
+           <div className="bg-indigo-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-indigo-100 shadow-xl">
+             <Sparkles className="text-white w-8 h-8" />
+           </div>
+           <h2 className="text-2xl font-black text-slate-900 mb-6 tracking-tight">Onboarding Preview</h2>
+           
+           <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
+              <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <img src={tempAuthUser?.user_metadata?.avatar_url} alt="P" className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
+                <div className="text-left">
+                  <p className="text-sm font-bold text-slate-800">{tempAuthUser?.user_metadata?.full_name}</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase">{tempAuthUser?.email}</p>
+                </div>
+              </div>
+              
+              <div className="space-y-3 text-left">
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">Select your role to continue</p>
+                <button 
+                  onClick={() => finalizeLogin(UserRole.TEACHER)}
+                  className="w-full p-5 bg-indigo-600 text-white rounded-2xl font-bold flex items-center justify-between group shadow-lg shadow-indigo-100 active:scale-95 transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <BookOpen className="w-6 h-6" />
+                    <span>Teacher Account</span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button 
+                  onClick={() => finalizeLogin(UserRole.STUDENT)}
+                  className="w-full p-5 bg-white border-2 border-slate-100 text-slate-700 rounded-2xl font-bold flex items-center justify-between group hover:border-indigo-600 hover:text-indigo-600 active:scale-95 transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <Users className="w-6 h-6" />
+                    <span>Student Account</span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Layout user={user} onLogout={handleLogout} activeTab={currentTab} onTabChange={handleTabChange}>
       {opLoading && (
@@ -458,14 +548,14 @@ export default function App() {
                  <UserCircle className="w-48 h-48" />
               </div>
               <div className="relative z-10">
-                <img src={user.picture} alt="P" className="w-32 h-32 rounded-[2.5rem] mx-auto mb-6 border-4 border-indigo-50 shadow-2xl" />
-                <h2 className="text-3xl font-black text-slate-900 tracking-tight">{user.name}</h2>
+                <img src={user?.picture} alt="P" className="w-32 h-32 rounded-[2.5rem] mx-auto mb-6 border-4 border-indigo-50 shadow-2xl" />
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight">{user?.name}</h2>
                 <div className="flex items-center justify-center gap-2 text-slate-500 font-medium mb-8">
-                   <Mail className="w-4 h-4" /> {user.email}
+                   <Mail className="w-4 h-4" /> {user?.email}
                 </div>
                 
                 <div className="inline-flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-100">
-                   <Award className="w-4 h-4" /> {user.role} Member
+                   <Award className="w-4 h-4" /> {user?.role} Member
                 </div>
               </div>
            </div>
@@ -481,7 +571,7 @@ export default function App() {
                     <div className="flex justify-between items-center">
                        <span className="text-slate-500 font-bold">Total Attendance Records</span>
                        <span className="text-xl font-black text-indigo-600">
-                         {attendance.filter(r => r.studentId === user.id).length || '0'}
+                         {attendance.filter(r => r.studentId === user?.id).length || '0'}
                        </span>
                     </div>
                  </div>
@@ -493,7 +583,7 @@ export default function App() {
            </div>
         </div>
       ) : selectedClass ? (
-        user.role === UserRole.TEACHER ? (
+        user?.role === UserRole.TEACHER ? (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="flex items-center gap-4">
               <button onClick={() => setSelectedClass(null)} className="p-3 bg-white hover:bg-slate-100 rounded-2xl shadow-sm border border-slate-100 transition-colors">
@@ -653,13 +743,13 @@ export default function App() {
                     </div>
                     
                     <div className="divide-y divide-slate-50">
-                       {attendance.filter(r => r.studentId === user.id).length === 0 ? (
+                       {attendance.filter(r => r.studentId === user?.id).length === 0 ? (
                          <div className="p-20 text-center">
                             <Clock className="w-16 h-16 text-slate-100 mx-auto mb-4" />
                             <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">No scans found</p>
                          </div>
                        ) : (
-                        attendance.filter(r => r.studentId === user.id).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(record => (
+                        attendance.filter(r => r.studentId === user?.id).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(record => (
                           <div key={record.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
                              <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center">
@@ -706,12 +796,12 @@ export default function App() {
             </div>
             <div className="relative z-10">
               <p className="text-indigo-200 font-black text-[10px] uppercase tracking-[0.3em] mb-4">Institutional Dashboard</p>
-              <h2 className="text-4xl font-black mb-2 tracking-tight">Hello, {user.name.split(' ')[0]}!</h2>
+              <h2 className="text-4xl font-black mb-2 tracking-tight">Hello, {user?.name.split(' ')[0]}!</h2>
               <p className="text-indigo-100 font-medium opacity-90 max-w-sm">Manage your academic schedule and track real-time attendance syncing.</p>
             </div>
           </div>
 
-          {user.role === UserRole.TEACHER ? (
+          {user?.role === UserRole.TEACHER ? (
             <>
               <div className="flex items-center justify-between">
                 <div>

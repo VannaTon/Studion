@@ -8,11 +8,17 @@ export const dbService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data: profile } = await supabase
+    // Using maybeSingle() because new users won't have a profile yet
+    const { data: profile, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error fetching profile:", error);
+      return null;
+    }
 
     if (profile) {
       return {
@@ -75,7 +81,7 @@ export const dbService = {
       grade: c.grade,
       academicYear: c.academic_year,
       teacherId: c.teacher_id,
-      studentIds: c.enrollments.map((e: any) => e.student_id)
+      studentIds: (c.enrollments || []).map((e: any) => e.student_id)
     }));
   },
 
@@ -93,7 +99,7 @@ export const dbService = {
       grade: c.grade,
       academicYear: c.academic_year,
       teacherId: c.teacher_id,
-      studentIds: c.enrollments.map((e: any) => e.student_id)
+      studentIds: (c.enrollments || []).map((e: any) => e.student_id)
     }));
   },
 

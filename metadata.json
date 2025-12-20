@@ -1,0 +1,7 @@
+{
+  "name": "EduScan: QR Attendance Pro",
+  "description": "A modern School Management System featuring secure Google Authentication and time-limited QR code attendance tracking for teachers and students.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

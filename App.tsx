@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, UserRole, Class, AttendanceRecord } from './types';
-import { dbService } from './services/dbService';
-import { supabase } from './services/supabase';
-import { Layout } from './components/Layout';
-import { Button } from './components/Shared/Button';
-import { Modal } from './components/Shared/Modal';
-import { ClassForm } from './components/Teacher/ClassForm';
-import { QRScanner } from './components/Student/QRScanner';
+import { User, UserRole, Class, AttendanceRecord } from './types.ts';
+import { dbService } from './services/dbService.ts';
+import { supabase } from './services/supabase.ts';
+import { Layout } from './components/Layout.tsx';
+import { Button } from './components/Shared/Button.tsx';
+import { Modal } from './components/Shared/Modal.tsx';
+import { ClassForm } from './components/Teacher/ClassForm.tsx';
+import { QRScanner } from './components/Student/QRScanner.tsx';
 import { 
   Plus, 
   Users, 
@@ -63,7 +63,6 @@ export default function App() {
   const [copied, setCopied] = useState(false);
 
   // Filter classes the student is enrolled in
-  // Fix: Added enrolledClasses useMemo to resolve "Cannot find name 'enrolledClasses'" error
   const enrolledClasses = useMemo(() => {
     if (!user || user.role !== UserRole.STUDENT) return [];
     return classes.filter(c => c.studentIds.includes(user.id));
@@ -72,9 +71,14 @@ export default function App() {
   // Initialize Auth
   useEffect(() => {
     const initAuth = async () => {
-      const currentUser = await dbService.getCurrentUser();
-      setUser(currentUser);
-      setLoading(false);
+      try {
+        const currentUser = await dbService.getCurrentUser();
+        setUser(currentUser);
+      } catch (err) {
+        console.error("Auth initialization error:", err);
+      } finally {
+        setLoading(false);
+      }
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
@@ -127,15 +131,20 @@ export default function App() {
     const fetchClassDetails = async () => {
       if (selectedClass) {
         setOpLoading(true);
-        const [records, profiles] = await Promise.all([
-          dbService.getAttendance(selectedClass.id),
-          user?.role === UserRole.TEACHER 
-            ? dbService.getProfilesByIds(selectedClass.studentIds)
-            : Promise.resolve([])
-        ]);
-        setAttendance(records);
-        setStudentProfiles(profiles);
-        setOpLoading(false);
+        try {
+          const [records, profiles] = await Promise.all([
+            dbService.getAttendance(selectedClass.id),
+            user?.role === UserRole.TEACHER 
+              ? dbService.getProfilesByIds(selectedClass.studentIds)
+              : Promise.resolve([])
+          ]);
+          setAttendance(records);
+          setStudentProfiles(profiles);
+        } catch (err) {
+          console.error("Error fetching class details:", err);
+        } finally {
+          setOpLoading(false);
+        }
       }
     };
     fetchClassDetails();
@@ -216,8 +225,6 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Function to export attendance to CSV
-  // Fix: Added exportCSV to resolve "Cannot find name 'exportCSV'" error
   const exportCSV = () => {
     if (!selectedClass || attendance.length === 0) return;
     
@@ -345,7 +352,6 @@ export default function App() {
     );
   }
 
-  // --- LOGIN VIEW ---
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -680,7 +686,6 @@ export default function App() {
         )
       ) : (
         <div className="space-y-12 animate-in fade-in duration-500">
-          {/* Welcome Banner */}
           <div className="p-12 bg-indigo-600 rounded-[3rem] text-white shadow-2xl shadow-indigo-200 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-10">
                <Sparkles className="w-48 h-48" />

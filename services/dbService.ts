@@ -1,6 +1,6 @@
 
-import { supabase } from './supabase';
-import { Class, AttendanceRecord, User, UserRole } from '../types';
+import { supabase } from './supabase.ts';
+import { Class, AttendanceRecord, User, UserRole } from '../types.ts';
 
 export const dbService = {
   // Authentication & Profiles

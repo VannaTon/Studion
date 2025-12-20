@@ -129,7 +129,7 @@ export default function App() {
     initAuth();
   }, []);
 
-  // Main data fetcher - decoupled from selectedClass to prevent loops
+  // Main data fetcher
   const refreshData = useCallback(async () => {
     if (!user) return;
     try {
@@ -145,12 +145,11 @@ export default function App() {
     }
   }, [user?.id, user?.role]);
 
-  // Refresh data on mount or user change
   useEffect(() => {
     refreshData();
   }, [refreshData]);
 
-  // Keep selectedClass object in sync with the classes array updates
+  // Sync selectedClass object with the classes array updates
   useEffect(() => {
     if (selectedClass) {
       const updated = classes.find(c => c.id === selectedClass.id);
@@ -164,10 +163,19 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     const fetchClassDetails = async () => {
-      if (!selectedClass) return;
+      if (!selectedClass) {
+        setAttendance([]);
+        setStudentProfiles([]);
+        return;
+      }
       
-      // Only show full-screen loader if we don't have records yet to prevent flickering
-      if (attendance.length === 0 || studentProfiles.length === 0) {
+      // Role-aware loading logic: Students don't fetch profiles, so ignore that count
+      const isMissingData = user?.role === UserRole.TEACHER 
+        ? (attendance.length === 0 || studentProfiles.length === 0)
+        : (attendance.length === 0);
+
+      // Only show global blocking loader if it's the first time we're seeing this class ID
+      if (isMissingData) {
         setOpLoading(true);
       }
 
@@ -186,7 +194,8 @@ export default function App() {
       } catch (err) {
         console.error("Error fetching class details:", err);
       } finally {
-        if (isMounted) setOpLoading(false);
+        // ALWAYS clear the loader, even if unmounted
+        setOpLoading(false);
       }
     };
 
@@ -383,7 +392,7 @@ export default function App() {
     }
     setCurrentTab(tab);
     setSelectedClass(null);
-    setAttendance([]); // Clear local lists when moving away
+    setAttendance([]); 
     setStudentProfiles([]);
   };
 

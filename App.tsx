@@ -104,20 +104,24 @@ export default function App() {
 
   const refreshData = useCallback(async () => {
     if (user) {
-      if (user.role === UserRole.TEACHER) {
-        const teacherClasses = await dbService.getClassesByTeacher(user.id);
-        setClasses(teacherClasses);
-        if (selectedClass) {
-          const updated = teacherClasses.find(c => c.id === selectedClass.id);
-          if (updated) setSelectedClass(updated);
+      try {
+        if (user.role === UserRole.TEACHER) {
+          const teacherClasses = await dbService.getClassesByTeacher(user.id);
+          setClasses(teacherClasses);
+          if (selectedClass) {
+            const updated = teacherClasses.find(c => c.id === selectedClass.id);
+            if (updated) setSelectedClass(updated);
+          }
+        } else if (user.role === UserRole.STUDENT) {
+          const allClasses = await dbService.getAllClasses();
+          setClasses(allClasses);
+          if (selectedClass) {
+            const updated = allClasses.find(c => c.id === selectedClass.id);
+            if (updated) setSelectedClass(updated);
+          }
         }
-      } else if (user.role === UserRole.STUDENT) {
-        const allClasses = await dbService.getAllClasses();
-        setClasses(allClasses);
-        if (selectedClass) {
-          const updated = allClasses.find(c => c.id === selectedClass.id);
-          if (updated) setSelectedClass(updated);
-        }
+      } catch (err) {
+        console.error("Data refresh error:", err);
       }
     }
   }, [user, selectedClass]);
@@ -151,12 +155,22 @@ export default function App() {
   }, [selectedClass, user?.role]);
 
   const initiateGoogleSignIn = async () => {
-    await supabase.auth.signInWithOAuth({
+    // Explicitly define the redirect URL to match the current origin
+    const redirectUrl = window.location.origin;
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: redirectUrl,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        }
       }
     });
+    if (error) {
+      console.error("Login error:", error.message);
+      alert("Error starting Google Login: " + error.message);
+    }
   };
 
   const finalizeLogin = async (role: UserRole) => {

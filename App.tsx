@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { User, UserRole, Class, AttendanceRecord } from './types.ts';
 import { dbService } from './services/dbService.ts';
 import { supabase } from './services/supabase.ts';
@@ -49,6 +49,10 @@ export default function App() {
   const [opLoading, setOpLoading] = useState(false);
   const [currentTab, setCurrentTab] = useState<'classes' | 'profile' | 'scan'>('classes');
   
+  // Ref to track if we've already tried fetching data for the selected class
+  // This prevents infinite "Processing" loops when results are empty (like new students)
+  const lastFetchedId = useRef<string | null>(null);
+
   // Modals state
   const [showClassModal, setShowClassModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -166,16 +170,13 @@ export default function App() {
       if (!selectedClass) {
         setAttendance([]);
         setStudentProfiles([]);
+        lastFetchedId.current = null;
         return;
       }
-      
-      // Role-aware loading logic: Students don't fetch profiles, so ignore that count
-      const isMissingData = user?.role === UserRole.TEACHER 
-        ? (attendance.length === 0 || studentProfiles.length === 0)
-        : (attendance.length === 0);
 
-      // Only show global blocking loader if it's the first time we're seeing this class ID
-      if (isMissingData) {
+      // If we already fetched this specific class ID, don't show the global "Processing" loader again
+      // This is crucial for students with 0 attendance records
+      if (lastFetchedId.current !== selectedClass.id) {
         setOpLoading(true);
       }
 
@@ -190,12 +191,14 @@ export default function App() {
         if (isMounted) {
           setAttendance(records);
           setStudentProfiles(profiles);
+          lastFetchedId.current = selectedClass.id;
         }
       } catch (err) {
         console.error("Error fetching class details:", err);
       } finally {
-        // ALWAYS clear the loader, even if unmounted
-        setOpLoading(false);
+        if (isMounted) {
+          setOpLoading(false);
+        }
       }
     };
 
@@ -230,24 +233,29 @@ export default function App() {
     if (!tempAuthUser) return;
     setOpLoading(true);
     
-    const newUser: User = {
-      id: tempAuthUser.id,
-      googleId: tempAuthUser.id,
-      name: tempAuthUser.user_metadata?.full_name || tempAuthUser.email,
-      email: tempAuthUser.email || '',
-      picture: tempAuthUser.user_metadata?.avatar_url || '',
-      role
-    };
-    
-    const success = await dbService.upsertProfile(newUser);
-    if (success) {
-      setUser(newUser);
-      setShowRoleSelection(false);
-      setTempAuthUser(null);
-    } else {
-      alert("Database error. Check Supabase logs.");
+    try {
+      const newUser: User = {
+        id: tempAuthUser.id,
+        googleId: tempAuthUser.id,
+        name: tempAuthUser.user_metadata?.full_name || tempAuthUser.email,
+        email: tempAuthUser.email || '',
+        picture: tempAuthUser.user_metadata?.avatar_url || '',
+        role
+      };
+      
+      const success = await dbService.upsertProfile(newUser);
+      if (success) {
+        setUser(newUser);
+        setShowRoleSelection(false);
+        setTempAuthUser(null);
+      } else {
+        alert("Database error. Profile could not be created.");
+      }
+    } catch (err) {
+      console.error("Finalize login error:", err);
+    } finally {
+      setOpLoading(false);
     }
-    setOpLoading(false);
   };
 
   const handleLogout = async () => {
@@ -259,29 +267,35 @@ export default function App() {
   const handleAddClass = async (data: Partial<Class>) => {
     if (!user) return;
     setOpLoading(true);
-    const newClass: Class = {
-      id: crypto.randomUUID(),
-      code: generateRandomCode(),
-      teacherId: user.id,
-      studentIds: [],
-      ...data as any
-    };
-    await dbService.saveClass(newClass);
-    await refreshData();
-    setShowClassModal(false);
-    setOpLoading(false);
+    try {
+      const newClass: Class = {
+        id: crypto.randomUUID(),
+        code: generateRandomCode(),
+        teacherId: user.id,
+        studentIds: [],
+        ...data as any
+      };
+      await dbService.saveClass(newClass);
+      await refreshData();
+      setShowClassModal(false);
+    } finally {
+      setOpLoading(false);
+    }
   };
 
   const handleRegenerateCode = async () => {
     if (!selectedClass || !confirm('Regenerate code?')) return;
     setOpLoading(true);
-    const updatedClass = {
-      ...selectedClass,
-      code: generateRandomCode()
-    };
-    await dbService.saveClass(updatedClass);
-    await refreshData();
-    setOpLoading(false);
+    try {
+      const updatedClass = {
+        ...selectedClass,
+        code: generateRandomCode()
+      };
+      await dbService.saveClass(updatedClass);
+      await refreshData();
+    } finally {
+      setOpLoading(false);
+    }
   };
 
   const handleCopyCode = () => {
@@ -317,36 +331,43 @@ export default function App() {
     e.preventDefault();
     if (!user || user.role !== UserRole.STUDENT) return;
     setOpLoading(true);
-    const targetCode = joinCode.trim().toUpperCase();
-    const allAvailable = await dbService.getAllClasses();
-    const targetClass = allAvailable.find(c => c.code === targetCode);
-    if (!targetClass) {
-      alert("Invalid code.");
+    try {
+      const targetCode = joinCode.trim().toUpperCase();
+      const allAvailable = await dbService.getAllClasses();
+      const targetClass = allAvailable.find(c => c.code === targetCode);
+      if (!targetClass) {
+        alert("Invalid code. Please check with your teacher.");
+        return;
+      }
+      if (targetClass.studentIds.includes(user.id)) {
+        alert("You are already enrolled in this class.");
+        setJoinCode('');
+        return;
+      }
+      const success = await dbService.joinClass(targetClass.id, user.id);
+      if (success) {
+        await refreshData();
+        setJoinCode('');
+        alert(`Successfully joined ${targetClass.name}!`);
+      }
+    } catch (err) {
+      console.error("Join class error:", err);
+      alert("An error occurred while joining the class.");
+    } finally {
       setOpLoading(false);
-      return;
     }
-    if (targetClass.studentIds.includes(user.id)) {
-      alert("Already joined.");
-      setJoinCode('');
-      setOpLoading(false);
-      return;
-    }
-    const success = await dbService.joinClass(targetClass.id, user.id);
-    if (success) {
-      await refreshData();
-      setJoinCode('');
-      alert(`Joined ${targetClass.name}!`);
-    }
-    setOpLoading(false);
   };
 
   const handleDeleteClass = async (id: string) => {
     if (confirm('Delete class permanently?')) {
       setOpLoading(true);
-      await dbService.deleteClass(id);
-      await refreshData();
-      setSelectedClass(null);
-      setOpLoading(false);
+      try {
+        await dbService.deleteClass(id);
+        await refreshData();
+        setSelectedClass(null);
+      } finally {
+        setOpLoading(false);
+      }
     }
   };
 
@@ -363,6 +384,7 @@ export default function App() {
         alert("QR expired.");
         return;
       }
+      setOpLoading(true);
       const record: AttendanceRecord = {
         id: crypto.randomUUID(),
         classId: data.classId,
@@ -374,7 +396,7 @@ export default function App() {
       };
       const success = await dbService.saveAttendance(record);
       if (success) {
-        alert("Attendance marked!");
+        alert("Attendance marked successfully!");
         await refreshData();
       } else {
         alert("Already marked today.");
@@ -382,6 +404,8 @@ export default function App() {
       setShowScannerModal(false);
     } catch (e) {
       alert("Invalid QR format.");
+    } finally {
+      setOpLoading(false);
     }
   };
 
@@ -394,6 +418,7 @@ export default function App() {
     setSelectedClass(null);
     setAttendance([]); 
     setStudentProfiles([]);
+    lastFetchedId.current = null;
   };
 
   if (loading) {

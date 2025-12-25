@@ -24,7 +24,9 @@ export const dbService = {
         email: profile.email,
         picture: profile.picture,
         role: profile.role,
-        universityId: profile.university_id
+        universityId: profile.university_id,
+        phoneNumber: profile.phone_number || '',
+        subject: profile.subject || ''
       } as User;
     }
     return null;
@@ -45,7 +47,9 @@ export const dbService = {
       email: p.email,
       picture: p.picture,
       role: p.role,
-      universityId: p.university_id
+      universityId: p.university_id,
+      phoneNumber: p.phone_number || '',
+      subject: p.subject || ''
     }));
   },
 
@@ -59,7 +63,9 @@ export const dbService = {
         email: user.email,
         picture: user.picture,
         role: user.role,
-        university_id: user.universityId
+        university_id: user.universityId,
+        phone_number: user.phoneNumber,
+        subject: user.subject
       });
     return !error;
   },
@@ -70,7 +76,15 @@ export const dbService = {
       .from('universities')
       .select('*');
     if (error) return [];
-    return data;
+    return data.map(u => ({
+      id: u.id,
+      name: u.name,
+      description: u.description,
+      location: u.location,
+      website: u.website,
+      logo: u.logo,
+      phoneNumber: u.phone_number || ''
+    }));
   },
 
   getUniversityById: async (id: string): Promise<University | null> => {
@@ -80,13 +94,29 @@ export const dbService = {
       .eq('id', id)
       .maybeSingle();
     if (error) return null;
-    return data;
+    return {
+      id: data.id,
+      name: data.name,
+      description: data.description,
+      location: data.location,
+      website: data.website,
+      logo: data.logo,
+      phoneNumber: data.phone_number || ''
+    };
   },
 
   upsertUniversity: async (uni: University) => {
     const { error } = await supabase
       .from('universities')
-      .upsert(uni);
+      .upsert({
+        id: uni.id,
+        name: uni.name,
+        description: uni.description,
+        location: uni.location,
+        website: uni.website,
+        logo: uni.logo,
+        phone_number: uni.phoneNumber
+      });
     return !error;
   },
 

@@ -13,6 +13,7 @@ export interface University {
   location: string;
   website: string;
   logo: string;
+  phoneNumber: string; // Institutional contact
 }
 
 export interface User {
@@ -23,6 +24,8 @@ export interface User {
   picture: string;
   role: UserRole;
   universityId?: string; // Linked institution
+  phoneNumber: string;
+  subject?: string; // For teachers
 }
 
 export interface Class {

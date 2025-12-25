@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   BookOpen,
   LogIn,
+  LogOut,
   Sparkles,
   Hash,
   ArrowRight,
@@ -117,6 +118,33 @@ export default function App() {
       }
     };
     initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setUniversity(null);
+        setClasses([]);
+        setSelectedClass(null);
+        setCurrentTab('classes');
+        setRegStep('LOGIN');
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        setLoading(true);
+        const profile = await dbService.getCurrentUser();
+        if (profile) {
+          setUser(profile);
+          if (profile.universityId) {
+            const uni = await dbService.getUniversityById(profile.universityId);
+            setUniversity(uni);
+          }
+        } else {
+          setTempAuthUser(session.user);
+          setRegStep('ROLE');
+        }
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const refreshData = useCallback(async () => {
@@ -148,6 +176,15 @@ export default function App() {
       provider: 'google',
       options: { redirectTo: window.location.origin }
     });
+  };
+
+  const handleLogout = async () => {
+    setOpLoading(true);
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setOpLoading(false);
+    }
   };
 
   const handleRoleSelect = async (role: UserRole) => {
@@ -389,10 +426,46 @@ export default function App() {
   }
 
   return (
-    <Layout user={user} onLogout={() => supabase.auth.signOut()} activeTab={currentTab} onTabChange={(t) => { setSelectedClass(null); setCurrentTab(t as any); }}>
+    <Layout user={user} onLogout={handleLogout} activeTab={currentTab} onTabChange={(t) => { setSelectedClass(null); setCurrentTab(t as any); }}>
       {opLoading && <div className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-sm flex items-center justify-center"><Loader2 className="animate-spin text-white w-12 h-12" /></div>}
 
-      {currentTab === 'university' && university ? (
+      {currentTab === 'profile' && user ? (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 max-w-4xl mx-auto">
+           <div className="bg-white p-12 rounded-[3.5rem] shadow-xl border border-slate-100 text-center relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-12 opacity-[0.03] rotate-12"><UserCircle className="w-64 h-64" /></div>
+              <div className="relative z-10">
+                <img src={user.picture} alt="Profile" className="w-40 h-40 rounded-[3rem] mx-auto mb-8 border-8 border-indigo-50 shadow-2xl" />
+                <h2 className="text-4xl font-black text-slate-900 tracking-tighter mb-2">{user.name}</h2>
+                <p className="text-slate-500 font-bold uppercase text-xs tracking-widest mb-8">{user.email}</p>
+                <div className="flex flex-wrap justify-center gap-3 mb-12">
+                   <div className="px-6 py-2 bg-indigo-600 text-white rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-100 flex items-center gap-2">
+                     <Award className="w-4 h-4" /> {user.role} Member
+                   </div>
+                   {user.subject && (
+                     <div className="px-6 py-2 bg-emerald-50 text-emerald-600 rounded-full font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+                       <Bookmark className="w-4 h-4" /> {user.subject} Expert
+                     </div>
+                   )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left max-w-2xl mx-auto mb-12">
+                   <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Phone Number</p>
+                      <p className="font-bold text-slate-800">{user.phoneNumber || 'Not provided'}</p>
+                   </div>
+                   <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Affiliated Institution</p>
+                      <p className="font-bold text-slate-800">{university?.name || 'Independent Node'}</p>
+                   </div>
+                </div>
+
+                <Button variant="danger" onClick={handleLogout} className="px-12 py-5 rounded-2xl flex items-center justify-center gap-3 mx-auto shadow-xl shadow-red-100">
+                  <LogOut className="w-5 h-5" /> Sign Out from Cloud
+                </Button>
+              </div>
+           </div>
+        </div>
+      ) : currentTab === 'university' && university ? (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
           <div className="bg-white p-12 rounded-[3.5rem] shadow-xl border border-slate-100 flex flex-col md:flex-row gap-12 items-center relative overflow-hidden">
             <div className="absolute top-0 right-0 p-12 opacity-[0.03] rotate-12"><Building2 className="w-64 h-64" /></div>

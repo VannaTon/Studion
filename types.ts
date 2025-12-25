@@ -2,7 +2,17 @@
 export enum UserRole {
   TEACHER = 'TEACHER',
   STUDENT = 'STUDENT',
+  UNIVERSITY = 'UNIVERSITY',
   ADMIN = 'ADMIN'
+}
+
+export interface University {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  website: string;
+  logo: string;
 }
 
 export interface User {
@@ -12,25 +22,19 @@ export interface User {
   email: string;
   picture: string;
   role: UserRole;
+  universityId?: string; // Linked institution
 }
 
 export interface Class {
   id: string;
-  code: string; // Unique short code for students to join
+  code: string;
   teacherId: string;
+  universityId: string; // Every class belongs to a university
   name: string;
   subject: string;
   grade: string;
   academicYear: string;
   studentIds: string[];
-}
-
-export interface Student {
-  id: string;
-  studentId: string; // School-specific ID
-  name: string;
-  email?: string;
-  classes: string[];
 }
 
 export interface AttendanceRecord {
@@ -41,11 +45,4 @@ export interface AttendanceRecord {
   timestamp: string;
   status: 'Present' | 'Absent' | 'Late';
   method: 'QR' | 'Manual';
-}
-
-export interface QRToken {
-  classId: string;
-  date: string;
-  token: string;
-  expiresAt: number;
 }

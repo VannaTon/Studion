@@ -1,6 +1,6 @@
 
 import { supabase } from './supabase.ts';
-import { Class, AttendanceRecord, User, UserRole } from '../types.ts';
+import { Class, AttendanceRecord, User, UserRole, University } from '../types.ts';
 
 export const dbService = {
   // Authentication & Profiles
@@ -8,17 +8,13 @@ export const dbService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // Using maybeSingle() because new users won't have a profile yet
     const { data: profile, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .maybeSingle();
 
-    if (error) {
-      console.error("Error fetching profile:", error);
-      return null;
-    }
+    if (error) return null;
 
     if (profile) {
       return {
@@ -27,7 +23,8 @@ export const dbService = {
         name: profile.name,
         email: profile.email,
         picture: profile.picture,
-        role: profile.role
+        role: profile.role,
+        universityId: profile.university_id
       } as User;
     }
     return null;
@@ -47,7 +44,8 @@ export const dbService = {
       name: p.name,
       email: p.email,
       picture: p.picture,
-      role: p.role
+      role: p.role,
+      universityId: p.university_id
     }));
   },
 
@@ -60,8 +58,35 @@ export const dbService = {
         name: user.name,
         email: user.email,
         picture: user.picture,
-        role: user.role
+        role: user.role,
+        university_id: user.universityId
       });
+    return !error;
+  },
+
+  // Universities
+  getAllUniversities: async (): Promise<University[]> => {
+    const { data, error } = await supabase
+      .from('universities')
+      .select('*');
+    if (error) return [];
+    return data;
+  },
+
+  getUniversityById: async (id: string): Promise<University | null> => {
+    const { data, error } = await supabase
+      .from('universities')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) return null;
+    return data;
+  },
+
+  upsertUniversity: async (uni: University) => {
+    const { error } = await supabase
+      .from('universities')
+      .upsert(uni);
     return !error;
   },
 
@@ -81,6 +106,27 @@ export const dbService = {
       grade: c.grade,
       academicYear: c.academic_year,
       teacherId: c.teacher_id,
+      universityId: c.university_id,
+      studentIds: (c.enrollments || []).map((e: any) => e.student_id)
+    }));
+  },
+
+  getClassesByUniversity: async (uniId: string): Promise<Class[]> => {
+    const { data, error } = await supabase
+      .from('classes')
+      .select('*, enrollments:class_enrollments(student_id)')
+      .eq('university_id', uniId);
+
+    if (error) return [];
+    return data.map(c => ({
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      subject: c.subject,
+      grade: c.grade,
+      academicYear: c.academic_year,
+      teacherId: c.teacher_id,
+      universityId: c.university_id,
       studentIds: (c.enrollments || []).map((e: any) => e.student_id)
     }));
   },
@@ -99,6 +145,7 @@ export const dbService = {
       grade: c.grade,
       academicYear: c.academic_year,
       teacherId: c.teacher_id,
+      universityId: c.university_id,
       studentIds: (c.enrollments || []).map((e: any) => e.student_id)
     }));
   },
@@ -110,6 +157,7 @@ export const dbService = {
         id: newClass.id,
         code: newClass.code,
         teacher_id: newClass.teacherId,
+        university_id: newClass.universityId,
         name: newClass.name,
         subject: newClass.subject,
         grade: newClass.grade,
@@ -126,7 +174,6 @@ export const dbService = {
     return !error;
   },
 
-  // Enrollments
   joinClass: async (classId: string, studentId: string) => {
     const { error } = await supabase
       .from('class_enrollments')
@@ -134,7 +181,6 @@ export const dbService = {
     return !error;
   },
 
-  // Attendance
   getAttendance: async (classId?: string, studentId?: string): Promise<AttendanceRecord[]> => {
     let query = supabase.from('attendance').select('*');
     if (classId) query = query.eq('class_id', classId);

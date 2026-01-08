@@ -94,11 +94,14 @@ export default function App() {
     return classes.filter(c => c.studentIds.includes(user.id));
   }, [classes, user]);
 
+  // Auth initialization and listener
   useEffect(() => {
+    let isMounted = true;
+
     const initAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
+        if (session?.user && isMounted) {
           const profile = await dbService.getCurrentUser();
           if (profile) {
             setUser(profile);
@@ -112,14 +115,17 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.error("Auth error:", err);
+        console.error("Auth init error:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
+    
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setUniversity(null);
@@ -127,7 +133,8 @@ export default function App() {
         setSelectedClass(null);
         setCurrentTab('classes');
         setRegStep('LOGIN');
-      } else if (event === 'SIGNED_IN' && session?.user) {
+        setLoading(false);
+      } else if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
         setLoading(true);
         const profile = await dbService.getCurrentUser();
         if (profile) {
@@ -144,7 +151,10 @@ export default function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const refreshData = useCallback(async () => {
@@ -172,16 +182,38 @@ export default function App() {
   }, [refreshData]);
 
   const initiateGoogleSignIn = async () => {
-    await supabase.auth.signInWithOAuth({
+    // We use window.location.href to ensure the origin is captured exactly as the browser sees it.
+    // Ensure this URL is whitelisted in Supabase Dashboard -> Auth -> URL Configuration.
+    const redirectTo = window.location.origin;
+    
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin }
+      options: { 
+        redirectTo,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        }
+      }
     });
+
+    if (error) {
+      console.error("Login Error:", error.message);
+      alert("Authentication failed: " + error.message);
+    }
   };
 
   const handleLogout = async () => {
     setOpLoading(true);
     try {
+      // Clear local state first for immediate UI feedback
+      setUser(null);
+      setUniversity(null);
+      setSelectedClass(null);
+      setClasses([]);
       await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Logout error:", err);
     } finally {
       setOpLoading(false);
     }
@@ -206,12 +238,11 @@ export default function App() {
     try {
       let finalUniId = selectedUniId;
 
-      // Create new university if needed
       if (selectedRole === UserRole.UNIVERSITY) {
         const newUni: University = {
           id: crypto.randomUUID(),
           ...uniFormData,
-          logo: `https://api.dicebear.com/7.x/initials/svg?seed=${uniFormData.name}`,
+          logo: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(uniFormData.name)}`,
           phoneNumber: uniFormData.phoneNumber
         };
         await dbService.upsertUniversity(newUni);
@@ -239,6 +270,9 @@ export default function App() {
           setUniversity(uni);
         }
       }
+    } catch (err) {
+      console.error("Registration finalization error:", err);
+      alert("Registration failed. Please check your connection.");
     } finally {
       setOpLoading(false);
     }
@@ -272,7 +306,7 @@ export default function App() {
       const allAvailable = await dbService.getAllClasses();
       const target = allAvailable.find(c => c.code === joinCode.toUpperCase() && c.universityId === user.universityId);
       if (!target) {
-        alert("Class not found in your university.");
+        alert("Class not found in your university. Check the code.");
         return;
       }
       await dbService.joinClass(target.id, user.id);
@@ -296,18 +330,27 @@ export default function App() {
         status: 'Present',
         method: 'QR'
       };
-      await dbService.saveAttendance(record);
-      alert("Clocked in!");
-      await refreshData();
+      const success = await dbService.saveAttendance(record);
+      if (success) {
+        alert("Clocked in successfully!");
+        await refreshData();
+      } else {
+        alert("Attendance already marked for today.");
+      }
       setShowScannerModal(false);
     } catch (e) {
-      alert("Invalid Code");
+      alert("Invalid Code Format");
     } finally {
       setOpLoading(false);
     }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600 w-12 h-12" /></div>;
+  if (loading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+      <Loader2 className="animate-spin text-indigo-600 w-12 h-12 mb-4" />
+      <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest">Synchronizing with Cloud</p>
+    </div>
+  );
 
   if (!user) {
     return (
@@ -322,9 +365,10 @@ export default function App() {
 
           {regStep === 'LOGIN' && (
             <div className="animate-in fade-in duration-300">
-              <Button fullWidth onClick={initiateGoogleSignIn} className="py-5 rounded-2xl flex items-center justify-center gap-3">
+              <Button fullWidth onClick={initiateGoogleSignIn} className="py-5 rounded-2xl flex items-center justify-center gap-3 active:scale-95 transition-all">
                 <LogIn className="w-5 h-5" /> Sign in with Google
               </Button>
+              <p className="mt-6 text-[10px] text-slate-400 text-center font-bold uppercase tracking-widest">Secure OAuth 2.0 Encryption</p>
             </div>
           )}
 
@@ -459,7 +503,7 @@ export default function App() {
                    </div>
                 </div>
 
-                <Button variant="danger" onClick={handleLogout} className="px-12 py-5 rounded-2xl flex items-center justify-center gap-3 mx-auto shadow-xl shadow-red-100">
+                <Button variant="danger" onClick={handleLogout} className="px-12 py-5 rounded-2xl flex items-center justify-center gap-3 mx-auto shadow-xl shadow-red-100 active:scale-95 transition-all">
                   <LogOut className="w-5 h-5" /> Sign Out from Cloud
                 </Button>
               </div>
